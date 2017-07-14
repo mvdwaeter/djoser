@@ -706,6 +706,7 @@ class SetPasswordViewTest(restframework.APIViewTestCase,
 
 
 class SetUsernameViewTest(restframework.APIViewTestCase,
+                          assertions.EmailAssertionsMixin,
                           assertions.StatusCodeAssertionsMixin):
     view_class = djoser.views.SetUsernameView
 
@@ -769,9 +770,41 @@ class SetUsernameViewTest(restframework.APIViewTestCase,
         user = utils.refresh(user)
         self.assertNotEqual(user.username, data['new_username'])
 
+    @override_settings(
+        DJOSER=dict(settings.DJOSER, **{'SEND_ACTIVATION_EMAIL': True})
+    )
+    def test_post_should_update_username_and_send_activation_email(self):
+        user = create_user()
+        data = {
+            'new_username': 'dango',
+            'current_password': 'secret',
+        }
+        request = self.factory.post(user=user, data=data)
+
+        response = self.view(request)
+
+        self.assert_status_equal(response, status.HTTP_204_NO_CONTENT)
+        self.assert_emails_in_mailbox(1)
+        self.assert_email_exists(to=[user.email])
+
+        user = get_user_model().objects.get(username='dango')
+        self.assertFalse(user.is_active)
+
+    def test_post_should_not_set_new_username_if_same(self):
+        user = create_user()
+        data = {
+            'new_username': 'john',
+            'current_password': 'secret',
+        }
+        request = self.factory.post(user=user, data=data)
+
+        response = self.view(request)
+
+        self.assert_status_equal(response, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(user.is_active)
+
 
 class UserViewTest(restframework.APIViewTestCase,
-                   assertions.EmailAssertionsMixin,
                    assertions.StatusCodeAssertionsMixin):
     view_class = djoser.views.UserView
 
@@ -798,23 +831,6 @@ class UserViewTest(restframework.APIViewTestCase,
         self.assert_status_equal(response, status.HTTP_200_OK)
         user = utils.refresh(user)
         self.assertEqual(data['email'], user.email)
-
-    @override_settings(DJOSER=dict(settings.DJOSER, **{'SEND_ACTIVATION_EMAIL': True}))
-    def test_put_should_update_user_email_and_send_activation_email(self):
-        user = create_user()
-        data = {
-            'email': 'ringo@beatles.com',
-        }
-        request = self.factory.put(user=user, data=data)
-
-        response = self.view(request)
-
-        self.assert_status_equal(response, status.HTTP_200_OK)
-        self.assert_emails_in_mailbox(1)
-        self.assert_email_exists(to=[data['email']])
-
-        user = get_user_model().objects.get(username='john')
-        self.assertFalse(user.is_active)
 
 
 class UserEmailFactoryBaseTest(SimpleTestCase):
